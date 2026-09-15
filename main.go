@@ -1,22 +1,72 @@
 ﻿package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	
 	"fyne.io/fyne/v2/driver/desktop"
 	"winja/ui"
 )
+
+func generateIPCSecret() string {
+	appData, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+
+	secretDir := filepath.Join(appData, "Winja")
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		return ""
+	}
+
+	secretFile := filepath.Join(secretDir, "ipc_secret")
+	if data, err := os.ReadFile(secretFile); err == nil {
+		secret := strings.TrimSpace(string(data))
+		if secret != "" {
+			return secret
+		}
+	}
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	secret := base64.RawURLEncoding.EncodeToString(buf)
+	if err := os.WriteFile(secretFile, []byte(secret), 0600); err != nil {
+		return ""
+	}
+	return secret
+}
+
+func validateIPCRequest(payload, secret string) (string, bool) {
+	msg := strings.TrimSpace(payload)
+	parts := strings.SplitN(msg, "\n", 2)
+	if len(parts) != 2 {
+		return "", false
+	}
+	if parts[0] != secret {
+		return "", false
+	}
+	path := strings.TrimSpace(parts[1])
+	if path == "" {
+		return "", false
+	}
+	return path, true
+}
 
 func main() {
 	var initialFileToScan string
 	os.Setenv("FYNE_THEME", "dark")
 	os.Setenv("FYNE_FONT", "Oswald.ttf")
+	ipcSecret := generateIPCSecret()
 	
 	defer func() {
 		if r := recover(); r != nil {
@@ -25,12 +75,13 @@ func main() {
 	}()
 
 	if len(os.Args) > 1 {
-		// If trying to open a file, send to running instance if possible
-		conn, err := net.Dial("tcp", "127.0.0.1:49201")
-		if err == nil {
-			conn.Write([]byte(os.Args[1]))
-			conn.Close()
-			os.Exit(0)
+		if ipcSecret != "" {
+			conn, err := net.Dial("tcp", "127.0.0.1:49201")
+			if err == nil {
+				_, _ = conn.Write([]byte(ipcSecret + "\n" + os.Args[1]))
+				conn.Close()
+				os.Exit(0)
+			}
 		}
 		initialFileToScan = os.Args[1]
 	}
@@ -59,28 +110,31 @@ func main() {
 
 	mainApp := ui.NewApp(a, w)
 
-	// Start IPC server
-	go func() {
-		l, err := net.Listen("tcp", "127.0.0.1:49201")
-		if err != nil {
-			fmt.Println("IPC Listen error:", err)
-			return
-		}
-		defer l.Close()
-		for {
-			conn, err := l.Accept()
+	if ipcSecret != "" {
+		// Start IPC server with a per-user secret so only this app instance can receive file requests.
+		go func() {
+			l, err := net.Listen("tcp", "127.0.0.1:49201")
 			if err != nil {
-				continue
+				fmt.Println("IPC Listen error:", err)
+				return
 			}
-			buf := make([]byte, 4096)
-			n, _ := conn.Read(buf)
-			if n > 0 {
-				path := string(buf[:n])
-				mainApp.StartScan(path)
+			defer l.Close()
+			for {
+				conn, err := l.Accept()
+				if err != nil {
+					continue
+				}
+				buf, err := io.ReadAll(conn)
+				conn.Close()
+				if err != nil || len(buf) == 0 {
+					continue
+				}
+				if path, ok := validateIPCRequest(string(buf), ipcSecret); ok {
+					mainApp.StartScan(path)
+				}
 			}
-			conn.Close()
-		}
-	}()
+		}()
+	}
 
 	w.SetContent(mainApp.BuildContent())
 

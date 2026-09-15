@@ -1,10 +1,14 @@
 ﻿package core
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 type Settings struct {
@@ -51,6 +55,49 @@ func init() {
 	loadSettings()
 }
 
+func protectAPIKey(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+
+	keyBytes := []byte(value)
+	in := windows.DataBlob{Data: &keyBytes[0], Size: uint32(len(keyBytes))}
+	var out windows.DataBlob
+	if err := windows.CryptProtectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return "", err
+	}
+	defer func() {
+		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	}()
+
+	return base64.StdEncoding.EncodeToString(unsafe.Slice(out.Data, int(out.Size))), nil
+}
+
+func unprotectAPIKey(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return "", err
+	}
+	if len(ciphertext) == 0 {
+		return "", nil
+	}
+
+	in := windows.DataBlob{Data: (*byte)(unsafe.Pointer(&ciphertext[0])), Size: uint32(len(ciphertext))}
+	var out windows.DataBlob
+	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
+		return "", err
+	}
+	defer func() {
+		_, _ = windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
+	}()
+
+	return string(unsafe.Slice(out.Data, int(out.Size))), nil
+}
+
 func loadSettings() {
 	// Not acquiring lock here because init runs sequentially and we lock in getters/setters
 	
@@ -69,11 +116,25 @@ func loadSettings() {
 	data, err := os.ReadFile(settingsFile)
 	if err == nil {
 		json.Unmarshal(data, &currentSettings)
+		if currentSettings.APIKey != "" {
+			if key, err := unprotectAPIKey(currentSettings.APIKey); err == nil {
+				currentSettings.APIKey = key
+			}
+		}
 	}
 }
 
 func saveSettings() error {
-	data, err := json.MarshalIndent(currentSettings, "", "  ")
+	settings := currentSettings
+	if settings.APIKey != "" {
+		encryptedKey, err := protectAPIKey(settings.APIKey)
+		if err != nil {
+			return err
+		}
+		settings.APIKey = encryptedKey
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
