@@ -1,6 +1,6 @@
 ﻿# Winja (Go Edition)
 
-Winja is a lightning-fast, native Windows desktop application built with Go and the [Fyne](https://fyne.io/) toolkit. It serves as a comprehensive system analysis and malware scanning tool, heavily integrating with the VirusTotal API.
+Winja is a lightning-fast, native Windows desktop application built with Go  toolkit. It serves as a comprehensive system analysis and malware scanning tool, heavily integrating with the VirusTotal API.
 
 ## Features
 
