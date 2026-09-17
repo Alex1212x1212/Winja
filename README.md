@@ -19,3 +19,16 @@ Or right-click any file in Windows Explorer and select **Winja -> Scan selected 
 
 ## Configuration
 To scan files, you must provide your free VirusTotal API key in the **General Settings** tab of the application.
+
+Instruction :  Open Winja
+
+<img width="1333" height="780" alt="winja_TUdDZy3rjt" src="https://github.com/user-attachments/assets/d27c0713-37cd-4461-9738-20039257fef3" />
+
+The Open Settings :
+<img width="1333" height="780" alt="winja_gDbDYdIKEL" src="https://github.com/user-attachments/assets/eef2e2f0-5506-4de2-8c8e-e42f6d2a9393" />
+
+The API : Custom API KEY (On slow Down)
+<img width="1325" height="759" alt="explorer_176tPRNTLW" src="https://github.com/user-attachments/assets/179cdad3-4ce9-4389-9ca5-6870d36a23d8" />
+
+It is done
+
